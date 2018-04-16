@@ -106,8 +106,8 @@
  * @copyright Christian Putzke
  * @link http://www.graviox.de/
  * @link https://twitter.com/cputzke/
- * @since 20.07.2011
- * @version 0.6
+ * @since 16.04.2018
+ * @version 0.7
  * @license http://www.gnu.org/licenses/agpl.html GNU AGPL v3 or later
  *
  */
@@ -119,7 +119,7 @@ class carddav_backend
 	 *
 	 * @constant	string
 	 */
-	const VERSION = '0.6';
+	const VERSION = '0.7';
 
 	/**
 	 * User agent displayed in http requests

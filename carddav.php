@@ -696,12 +696,18 @@ class carddav_backend
 	 */
 	private function clean_response($response)
 	{
-		$response = str_replace('Card:', null, $response);
-		$response = str_replace('card:', null, $response);
-		$response = str_replace('D:', null, $response);
-		$response = str_replace('d:', null, $response);
-		$response = str_replace('C:', null, $response);
-		$response = str_replace('c:', null, $response);
+		$response = str_replace('<Card:', '<', $response);
+		$response = str_replace('<card:', '<', $response);
+		$response = str_replace('<D:', '<', $response);
+		$response = str_replace('<d:', '<', $response);
+		$response = str_replace('<C:', '<', $response);
+		$response = str_replace('<c:', '<', $response);
+		$response = str_replace('</Card:', '</', $response);
+		$response = str_replace('</card:', '</', $response);
+		$response = str_replace('</D:', '</', $response);
+		$response = str_replace('</d:', '</', $response);
+		$response = str_replace('</C:', '</', $response);
+		$response = str_replace('</c:', '</', $response);
 
 		return $response;
 	}

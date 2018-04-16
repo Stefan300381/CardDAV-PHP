@@ -1,5 +1,6 @@
 Changes from v0.6 to v0.7
-- Added method to return vcards with given FN substring
+- Added method to return all plain vcards
+- Added method to return all plain vcards matching a specific FN substring
 - Added support for Google
 - Now always sending 'Depth' header
 

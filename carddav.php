@@ -10,6 +10,20 @@
  * echo $carddav->get();
  *
  *
+ * Get all vcards 
+ * --------------------
+ * $carddav = new carddav_backend('https://davical.example.com/user/contacts/');
+ * $carddav->set_auth('username', 'password');
+ * print_r($carddav->get_vcards());
+ *
+ *
+ * Get all vcards matching substring in their FN property (filtering is done on server side)
+ * --------------------
+ * $carddav = new carddav_backend('https://davical.example.com/user/contacts/');
+ * $carddav->set_auth('username', 'password');
+ * print_r($carddav->get_vcards_fn_match('searchpattern'));
+ *
+ *
  * Simple vCard query
  * ------------------
  * $carddav = new carddav_backend('https://davical.example.com/user/contacts/');
@@ -80,11 +94,12 @@
  * CardDAV server list
  * -------------------
  * DAViCal:						https://example.com/{resource|principal|username}/{collection}/
- * Apple Addressbook Server:	https://example.com/addressbooks/users/{resource|principal|username}/{collection}/
+ * Apple Addressbook Server:				https://example.com/addressbooks/users/{resource|principal|username}/{collection}/
  * memotoo:						https://sync.memotoo.com/cardDAV/
- * SabreDAV:					https://example.com/addressbooks/{resource|principal|username}/{collection}/
- * ownCloud:					https://example.com/apps/contacts/carddav.php/addressbooks/{resource|principal|username}/{collection}/
+ * SabreDAV:						https://example.com/addressbooks/{resource|principal|username}/{collection}/
+ * ownCloud:						https://example.com/apps/contacts/carddav.php/addressbooks/{resource|principal|username}/{collection}/
  * SOGo:						https://example.com/SOGo/dav/{resource|principal|username}/Contacts/{collection}/
+ * Google (direct):					https://google.com/m8/carddav/principals/__uids__/{username}/lists/default/
  *
  *
  * @author Christian Putzke <christian.putzke@graviox.de>
@@ -127,6 +142,13 @@ class carddav_backend
 	 */
 	private $url_parts = null;
 
+	/**
+	 * VCard File URL Extension
+	 * 
+	 * @var string
+	 */
+	private $url_vcard_extension = '.vcf';
+	
 	/**
 	 * Authentication string
 	 *
@@ -230,6 +252,32 @@ class carddav_backend
 		}
 
 		$this->url_parts = parse_url($this->url);
+
+		// workaround for providers that don't use the default .vcf extension
+		if (strpos($this->url, "google.com"))
+		{
+			$this->set_vcard_extension("");
+		}
+	}
+
+	/**
+	 * Sets the CardDAV vcard url extension
+	 *
+	 * Most providers do requests handling Vcards with .vcf, however
+	 * this isn't always the case and some providers (such as Google)
+	 * returned a 404 if the .vcf extension is used - or the other
+	 * way around, returning 404 unless .vcf is used.
+	 *
+	 * Both approaches are technically correct, see rfc635
+	 * http://tools.ietf.org/html/rfc6352
+	 *
+	 *
+	 * @param	string	$extension	File extension
+	 * @return	void
+	 */
+	public function set_vcard_extension($extension)
+	{
+		$this->url_vcard_extension = $extension;
 	}
 
 	/**
@@ -286,6 +334,57 @@ class carddav_backend
 			break;
 		}
 	}
+	
+	
+	/**
+	 * Gets all vCards 
+	 *
+	 * @param	boolean	$raw				Get response raw or simplified
+	 * @return	array					Raw or simplified XML response
+	 */
+	public function get_vcards($raw = false)
+	{
+		//$vcard_id = str_replace('.vcf', null, $vcard_id);
+
+		$bodyxml = new XMLWriter();
+		$bodyxml->openMemory();
+		$bodyxml->setIndent(4);
+		$bodyxml->startDocument('1.0', 'utf-8');
+			$bodyxml->startElement('C:addressbook-query');
+				$bodyxml->writeAttribute('xmlns:D', 'DAV:');
+				$bodyxml->writeAttribute('xmlns:C', 'urn:ietf:params:xml:ns:carddav');
+				$bodyxml->startElement('D:prop');
+					$bodyxml->writeElement('D:getetag');
+					$bodyxml->writeElement('C:address-data');
+				$bodyxml->endElement();
+			$bodyxml->endElement();
+		$bodyxml->endDocument();
+
+		$result = $this->query($this->url, 'REPORT', $bodyxml->outputMemory(), 'text/xml');
+		switch ($result['http_code'])
+		{
+			case 200:
+			case 207:
+				if ($raw) return $result;
+				try
+				{
+					$xmlPayload = simplexml_load_string($this->clean_response($result['response']));
+				}
+				catch(Exception $e)
+				{
+					throw new Exception('The XML response seems to be malformed and can\'t be simplified!', self::EXCEPTION_MALFORMED_XML_RESPONSE, $e);
+				}
+				$vcards=array();
+				$toString = function($xml) { return html_entity_decode(strip_tags($xml->asXml())); };
+				return array_map($toString, $xmlPayload->xpath('//address-data'));
+			break;
+
+			default:
+				throw new Exception('Woops, something\'s gone wrong! The CardDAV server returned the http status code ' . $result['http_code'] . '.', self::EXCEPTION_WRONG_HTTP_STATUS_CODE_GET);
+			break;
+		}
+			
+	}
 
 	/**
 	* Gets a clean vCard from the CardDAV server
@@ -295,8 +394,8 @@ class carddav_backend
 	*/
 	public function get_vcard($vcard_id)
 	{
-		$vcard_id	= str_replace('.vcf', null, $vcard_id);
-		$result		= $this->query($this->url . $vcard_id . '.vcf', 'GET');
+		$vcard_id	= str_replace($this->url_vcard_extension, null, $vcard_id);
+		$result		= $this->query($this->url . $vcard_id . $this->url_vcard_extension, 'GET');
 
 		switch ($result['http_code'])
 		{
@@ -319,7 +418,7 @@ class carddav_backend
 	 */
 	public function get_xml_vcard($vcard_id)
 	{
-		$vcard_id = str_replace('.vcf', null, $vcard_id);
+		$vcard_id = str_replace($this->url_vcard_extension, null, $vcard_id);
 
 		$xml = new XMLWriter();
 		$xml->openMemory();
@@ -332,7 +431,7 @@ class carddav_backend
 					$xml->writeElement('D:getetag');
 					$xml->writeElement('D:getlastmodified');
 				$xml->endElement();
-				$xml->writeElement('D:href', $this->url_parts['path'] . $vcard_id . '.vcf');
+				$xml->writeElement('D:href', $this->url_parts['path'] . $vcard_id . $this->url_vcard_extension);
 			$xml->endElement();
 		$xml->endDocument();
 
@@ -401,8 +500,7 @@ class carddav_backend
 	 */
 	public function delete($vcard_id)
 	{
-		$result = $this->query($this->url . $vcard_id . '.vcf', 'DELETE');
-
+		$result = $this->query($this->url . $vcard_id . $this->url_vcard_extension, 'DELETE');
 		switch ($result['http_code'])
 		{
 			case 204:
@@ -429,7 +527,7 @@ class carddav_backend
 			$vcard_id	= $this->generate_vcard_id();
 		}
 		$vcard		= $this->clean_vcard($vcard);
-		$result		= $this->query($this->url . $vcard_id . '.vcf', 'PUT', $vcard, 'text/vcard');
+		$result		= $this->query($this->url . $vcard_id . $this->url_vcard_extension, 'PUT', $vcard, 'text/vcard');		
 
 		switch($result['http_code'])
 		{
@@ -462,6 +560,53 @@ class carddav_backend
 		}
 	}
 
+	/**
+	* Gets all vCards from the CardDAV server that have a matching substring in their FN property
+	*
+	* @param	string	$substring		Substring that must be contained in the FN property of the vCard
+	* @return	array				An array of all vcards that the remote server returned. Any XML is already stripped, these are plain vcards.
+	*/
+	public function get_vcards_fn_match($substring)
+	{
+		$xml = new XMLWriter;
+		$xml->openMemory();
+		$xml->setIndent(4);
+		$xml->startDocument('1.0', 'utf-8');
+			$xml->startElement('C:addressbook-query');
+				$xml->writeAttribute('xmlns:D', 'DAV:');
+				$xml->writeAttribute('xmlns:C', 'urn:ietf:params:xml:ns:carddav');
+				$xml->startElement('D:prop');
+					$xml->writeElement('D:getetag');
+					$xml->writeElement('C:address-data');	
+				$xml->endElement();
+				$xml->startElement('C:filter');
+					$xml->startElement('C:prop-filter');
+						$xml->writeAttribute('name', 'FN');
+						$xml->startElement('C:text-match');
+							$xml->writeAttribute('collation', 'i;unicode-casemap');
+							$xml->writeAttribute('match-type', 'contains');
+							$xml->text($substring);
+						$xml->endElement();
+					$xml->endElement();
+				$xml->endElement();
+			$xml->endElement();
+		$xml->endDocument();
+
+		$result = $this->query($this->url, 'REPORT', $xml->outputMemory(), 'text/xml');
+		switch ($result['http_code'])
+		{
+			case 200:
+			case 207:
+				$xmlPayload = simplexml_load_string($this->clean_response($result['response']));
+				$toString = function($xml) { return html_entity_decode(strip_tags($xml->asXml())); };
+				return array_map($toString, $xmlPayload->xpath('//address-data'));
+				break;
+                        default:
+                                throw new Exception('Woops, something\'s gone wrong! The CardDAV server returned the http status code ' . $result['http_code'] . '.', self::EXCEPTION_WRONG_HTTP_STATUS_CODE_GET_XML_VCARD);
+                        break;
+                }
+        }
+	
 	/**
 	 * Simplify CardDAV XML response
 	 *
@@ -496,7 +641,7 @@ class carddav_backend
 						if (preg_match('/vcard/', $response->propstat->prop->getcontenttype) || preg_match('/vcf/', $response->href))
 						{
 							$id = basename($response->href);
-							$id = str_replace('.vcf', null, $id);
+							$id = str_replace($this->url_vcard_extension, null, $id);
 
 							if (!empty($id))
 							{
@@ -551,7 +696,8 @@ class carddav_backend
 	 */
 	private function clean_response($response)
 	{
-		$response = utf8_encode($response);
+		$response = str_replace('Card:', null, $response);
+		$response = str_replace('card:', null, $response);
 		$response = str_replace('D:', null, $response);
 		$response = str_replace('d:', null, $response);
 		$response = str_replace('C:', null, $response);
@@ -593,7 +739,7 @@ class carddav_backend
 	 * @param	string	$content_type		Set content type
 	 * @return	array						Raw CardDAV Response and http status code
 	 */
-	private function query($url, $method, $content = null, $content_type = null)
+	private function query($url, $method, $content = null, $content_type = null, $depth = 'infinity', $custom_headers = array())
 	{
 		$this->curl_init();
 
@@ -613,11 +759,11 @@ class carddav_backend
 
 		if ($content_type !== null)
 		{
-			curl_setopt($this->curl, CURLOPT_HTTPHEADER, array('Content-type: '.$content_type));
+			curl_setopt($this->curl, CURLOPT_HTTPHEADER, array_merge(array('Content-type: '.$content_type, 'Depth: '.$depth),$custom_headers));
 		}
 		else
 		{
-			curl_setopt($this->curl, CURLOPT_HTTPHEADER, array());
+			curl_setopt($this->curl, CURLOPT_HTTPHEADER, $custom_headers);
 		}
 
 		$complete_response	= curl_exec($this->curl);
@@ -671,7 +817,7 @@ class carddav_backend
 			$carddav = new carddav_backend($this->url);
 			$carddav->set_auth($this->username, $this->password);
 
-			$result = $carddav->query($this->url . $vcard_id . '.vcf', 'GET');
+			$result = $carddav->query($this->url . $vcard_id . $this->url_vcard_extension, 'GET');
 
 			if ($result['http_code'] !== 404)
 			{

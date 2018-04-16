@@ -7,10 +7,10 @@ Features
 --------
 * Query your CardDAV server with XML response (simplified or raw)
 * Supports many authentication methods
-* You can add / update / delete vCards from your CardDAV server
+* You can get / add / update / delete vCards from your CardDAV server
 * Get single vCards (raw or extended XML) from your CardDAV server
 * Check CardDAV server connection
-* Tested CardDAV servers: DAViCal, Apple Addressbook Server, memotoo, SabreDAV, ownCloud, SOGo
+* Tested CardDAV servers: DAViCal, Apple Addressbook Server, memotoo, SabreDAV, ownCloud, SOGo, Google
 
 
 Installation
